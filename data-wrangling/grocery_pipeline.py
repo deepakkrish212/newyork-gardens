@@ -44,8 +44,8 @@ def clean_data(df):
             # Append the lon value to the Longitude column
             df.loc[i, 'Longitude'] = float(lon)
     
-    # Establishment type must contain the letter 'O' or 'R' or 'D' or 'G' or 'T' or 'H'
-    df = df[df['Establishment Type'].str.contains('O|R|D|G|T|H')]
+    # Remove all of the rows where Entity Name does not contain the word grocery
+    df = df[df['Entity Name'].str.contains('grocery', case=False)]
 
     return df
 
