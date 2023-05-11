@@ -1,7 +1,3 @@
-# Ignore the csv files
-*.csv
-*.xlsx
-
 # Ignore the virtual environments
 venv/
 env/
