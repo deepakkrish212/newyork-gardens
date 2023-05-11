@@ -3,6 +3,7 @@ library(shiny)
 library(leaflet)
 library(readr)
 library(dplyr)
+library(tidyr)  # for replace_na
 
 # Define UI
 ui <- fluidPage(
@@ -22,7 +23,7 @@ ui <- fluidPage(
                 checkboxInput('header2', 'Header', TRUE)
   ),
   
-  leafletOutput("map", height = 550) # adjust the map size to take up the whole page
+  leafletOutput("map", height = 550) # adjust the map Size to take up the whole page
 )
 
 # Define server logic
@@ -34,8 +35,15 @@ server <- function(input, output) {
     }
     
     # Load the garden data and filter out null latitude/longitude values
-    read_csv(file$datapath, col_names = input$header1) |>
+    df <- read_csv(file$datapath, col_names = input$header1) |>
       filter(!is.na(Longitude), !is.na(Latitude))
+    
+    # If 'Size' column exists, replace NA with median value
+    if ('Size' %in% colnames(df)) {
+      df$Size <- replace_na(df$Size, median(df$Size, na.rm = TRUE))
+    }
+    
+    df
   })
   
   groceryData <- reactive({
@@ -59,16 +67,15 @@ server <- function(input, output) {
     # If garden data is loaded, add it to the map
     if (!is.null(gardenData)) {
       map <- map |> 
-        addMarkers(data = gardenData, lng = ~Longitude, lat = ~Latitude, 
-                   icon = ~leaflet::makeIcon(iconUrl = 'https://icon-library.com/images/tree-icon-png/tree-icon-png-3.jpg', 
-                                             iconWidth = 25, iconHeight = 25)) 
+        addCircleMarkers(data = gardenData, lng = ~Longitude, lat = ~Latitude, popup = ~`Garden Name`, radius = ~Size * 5) 
     }
     
     # If grocery data is loaded, add it to the map
+    # Need to fix grocery icons
     if (!is.null(groceryData)) {
       map <- map |> 
-        addMarkers(data = groceryData, lng = ~Longitude, lat = ~Latitude, 
-                   icon = ~leaflet::makeIcon(iconUrl = 'https://www.iconfinder.com/icons/3018711/ecommerce_platform_shopify_applications_online_retail_stores_icon', iconWidth = 25, iconHeight = 25)) 
+        addMarkers(data = groceryData, lng = ~Longitude, lat = ~Latitude, popup = ~`Entity Name`,
+                   icon = ~leaflet::makeIcon(iconUrl = 'shop-icon.png', iconWidth = 10, iconHeight = 10)) 
     }
     
     map
