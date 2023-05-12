@@ -19,39 +19,23 @@ ui <- fluidPage(
       actionButton("calculate", "Calculate")
     ),
     mainPanel(
-      leafletOutput("map", height = 550), # adjust the map Size to take up the whole page
+      leafletOutput("map"), # adjust the map Size to take up the whole page
       textOutput("grocery_dist"),
       textOutput("garden_dist"),
     )
   ),
   
-  absolutePanel(bottom = 10, right = 10, # place the panel in the top right corner
-                fileInput('file1', 'Choose Garden CSV File',
-                          accept=c('.csv')),
-                tags$hr(),
-                checkboxInput('header1', 'Header', TRUE)
-  ),
   
-  absolutePanel(bottom = 10, left = 10, # place the panel a bit lower
-                fileInput('file2', 'Choose Grocery CSV File',
-                          accept=c('.csv')),
-                tags$hr(),
-                checkboxInput('header2', 'Header', TRUE)
-  ),
   
   
 )
 
 # Define server logic
 server <- function(input, output) {
-  gardenData <- reactive({
-    file <- input$file1
-    if (is.null(file)) {
-      return(NULL)
-    }
+
     
     # Load the garden data and filter out null latitude/longitude values
-    df <- read_csv(file$datapath, col_names = input$header1) |>
+    df <- read_csv("gardens_nyc.csv", col_names =TRUE) |>
       filter(!is.na(Longitude), !is.na(Latitude))
     
     # If 'Size' column exists, replace NA with median value
@@ -59,27 +43,20 @@ server <- function(input, output) {
       df$Size <- replace_na(df$Size, median(df$Size, na.rm = TRUE))
     }
     
-    df
-  })
+    gardenData <- df
+
   
-  groceryData <- reactive({
-    file <- input$file2
-    if (is.null(file)) {
-      return(NULL)
-    }
-    
-    # Load the grocery data and filter out null latitude/longitude values
-    read_csv(file$datapath, col_names = input$header2) |>
+  groceryData <- read_csv("retail-food-stores-cleaned.csv", col_names=TRUE) |>
       filter(!is.na(Longitude), !is.na(Latitude))
-  })
+
   
   output$grocery_dist <- renderText({ "The closest grocery store is" }) # initialize the output
   output$garden_dist <- renderText({ "The closest garden is" }) # initialize the output
   
   observeEvent(input$calculate, {
     output$map <- renderLeaflet({
-      gardenData <- gardenData()
-      groceryData <- groceryData()
+      gardenData <- gardenData
+      groceryData <- groceryData
       
       # Create an empty map to start with
       map <- leaflet() |> addTiles()
@@ -94,7 +71,7 @@ server <- function(input, output) {
       if (!is.null(groceryData)) {
         map <- map |> 
           addMarkers(data = groceryData, lng = ~Longitude, lat = ~Latitude, popup = ~`Entity Name`,
-                     icon = ~leaflet::makeIcon(iconUrl = 'shop-icon.png', iconWidth = 10, iconHeight = 10)) 
+                     icon = ~leaflet::makeIcon(iconUrl = 'shop-icon.png', iconWidth = 20, iconHeight = 20)) 
       }
       
       # Add a FontAwesome user icon at the user-specified coordinates
@@ -107,9 +84,9 @@ server <- function(input, output) {
       map
     })
     
-    if (!is.null(groceryData())) {
+    if (!is.null(groceryData)) {
       # Calculate the grocery_dists from the user-specified coordinates to all grocery stores
-      grocery_dists <- distm(c(input$lng, input$lat), groceryData()[, c("Longitude", "Latitude")], fun = distVincentySphere)
+      grocery_dists <- distm(c(input$lng, input$lat), groceryData[, c("Longitude", "Latitude")], fun = distVincentySphere)
       
       # Find the minimum grocery_dist
       min_grocery_dist <- min(grocery_dists)
@@ -123,9 +100,9 @@ server <- function(input, output) {
       })
     }
     
-    if (!is.null(gardenData())) {
+    if (!is.null(gardenData)) {
       # Calculate the grocery_dists from the user-specified coordinates to all grocery stores
-      garden_dists <- distm(c(input$lng, input$lat), gardenData()[, c("Longitude", "Latitude")], fun = distVincentySphere)
+      garden_dists <- distm(c(input$lng, input$lat), gardenData[, c("Longitude", "Latitude")], fun = distVincentySphere)
       
       # Find the minimum grocery_dist
       min_garden_dist <- min(garden_dists)
