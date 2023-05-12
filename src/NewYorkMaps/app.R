@@ -7,6 +7,7 @@ library(tidyr)  # for replace_na
 library(geosphere)
 library(plotly)
 library(shinydashboard)
+library(DT)
 
 # Define UI
 ui <- dashboardPage(
@@ -29,7 +30,10 @@ ui <- dashboardPage(
                        textOutput("grocery_dist"),
                        textOutput("garden_dist")
                 ),
-                column(9, leafletOutput("map"))
+                column(9, 
+                       leafletOutput("map"),
+                       dataTableOutput("closest_gardens"),
+                       dataTableOutput("closest_groceries"))
               )
       ),
       
@@ -106,6 +110,7 @@ server <- function(input, output) {
     })
 
     if (!is.null(groceryData)) {
+      
       # Calculate the grocery_dists from the user-specified coordinates to all grocery stores
       grocery_dists <- distm(c(input$lng, input$lat), groceryData[, c("Longitude", "Latitude")], fun = distVincentySphere)
       
@@ -115,6 +120,21 @@ server <- function(input, output) {
       # Convert the grocery_dist to kilometers
       min_grocery_dist_km <- min_grocery_dist / 1000
       
+      # Calculate the distances from the user-specified coordinates to each grocery store
+      grocery_dists_km <- sapply(1:nrow(groceryData), function(i) {
+        distVincentySphere(c(input$lng, input$lat), groceryData[i, c("Longitude", "Latitude")]) / 1000
+      })
+      
+      # Add distances to the groceryData dataframe
+      groceryData$Distance <- grocery_dists_km
+      
+      # Order groceryData by distance
+      groceryData <- groceryData[order(groceryData$Distance), ]
+      
+      # Display the table
+      output$closest_groceries <- renderDataTable({
+        datatable(groceryData[, c("Entity Name", "Distance")], options = list(pageLength = 5))
+      })
       # Update the output
       output$grocery_dist <- renderText({
         paste0("The closest grocery store is ", round(min_grocery_dist_km, 2), " kilometers away.")
@@ -130,6 +150,22 @@ server <- function(input, output) {
       
       # Convert the grocery_dist to kilometers
       min_garden_dist_km <- min_garden_dist / 1000
+      
+      garden_dists_km <- sapply(1:nrow(gardenData), function(i) {
+        distVincentySphere(c(input$lng, input$lat), gardenData[i, c("Longitude", "Latitude")]) / 1000
+      })
+      
+      # Add distances to the gardenData dataframe
+      gardenData$Distance <- garden_dists_km
+      
+      # Order gardenData by distance
+      gardenData <- gardenData[order(gardenData$Distance), ]
+      
+      # Display the table
+      output$closest_gardens <- renderDataTable({
+        datatable(gardenData[, c("Garden Name", "Distance")], options = list(pageLength = 5))
+      })
+      
       
       # Update the output
       output$garden_dist <- renderText({
