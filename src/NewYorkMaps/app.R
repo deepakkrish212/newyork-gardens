@@ -5,59 +5,79 @@ library(readr)
 library(dplyr)
 library(tidyr)  # for replace_na
 library(geosphere)
+library(plotly)
+library(shinydashboard)
 
 # Define UI
-ui <- fluidPage(
-  
-  titlePanel("Garden and Grocery Locations"),
-  
-  sidebarLayout(
-    sidebarPanel( 
-      bottom = 10, right = 10,
-      sliderInput("lat", "Latitude", 40.705, min = 40.49, max = 40.92),
-      sliderInput("lng", "Longitude", -73.975, min = -74.27, max=-73.68),
-      actionButton("calculate", "Calculate")
-    ),
-    mainPanel(
-      leafletOutput("map"), # adjust the map Size to take up the whole page
-      textOutput("grocery_dist"),
-      textOutput("garden_dist"),
+ui <- dashboardPage(
+  dashboardHeader(title = "Garden and Grocery Locations"),
+  dashboardSidebar(
+    sidebarMenu(
+      menuItem("Map", tabName = "map", icon = icon("globe")),
+      menuItem("Time Series", tabName = "timeseries", icon = icon("line-chart"))
     )
   ),
-  
-  
-  
-  
+  dashboardBody(
+    tabItems(
+      # First tab content
+      tabItem(tabName = "map",
+              fluidRow(
+                column(3, 
+                       sliderInput("lat", "Latitude", 40.705, min = 40.49, max = 40.92),
+                       sliderInput("lng", "Longitude", -73.975, min = -74.27, max=-73.68),
+                       actionButton("calculate", "Calculate"),
+                       textOutput("grocery_dist"),
+                       textOutput("garden_dist")
+                ),
+                column(9, leafletOutput("map"))
+              )
+      ),
+      
+      # Second tab content
+      tabItem(tabName = "timeseries",
+              fluidRow(
+                fileInput("timeseries", "Choose CSV Files",
+                          multiple = TRUE,
+                          accept = c('text/csv', 
+                                     'text/comma-separated-values,text/plain', 
+                                     '.csv')),
+                plotlyOutput("plots"),
+                plotlyOutput("bar_plot")
+              )
+      )
+    )
+  )
 )
 
 # Define server logic
 server <- function(input, output) {
-
-    
-    # Load the garden data and filter out null latitude/longitude values
-    df <- read_csv("gardens_nyc.csv", col_names =TRUE) |>
-      filter(!is.na(Longitude), !is.na(Latitude))
-    
-    # If 'Size' column exists, replace NA with median value
-    if ('Size' %in% colnames(df)) {
-      df$Size <- replace_na(df$Size, median(df$Size, na.rm = TRUE))
-    }
-    
-    gardenData <- df
-
+  
+  # Load the garden data and filter out null latitude/longitude values
+  df <- read_csv("gardens_nyc.csv", col_names =TRUE) |>
+    filter(!is.na(Longitude), !is.na(Latitude))
+  
+  # If 'Size' column exists, replace NA with median value
+  if ('Size' %in% colnames(df)) {
+    df$Size <- replace_na(df$Size, median(df$Size, na.rm = TRUE))
+  }
+  
+  gardenData <- df
+  
   
   groceryData <- read_csv("retail-food-stores-cleaned.csv", col_names=TRUE) |>
-      filter(!is.na(Longitude), !is.na(Latitude))
-
+    filter(!is.na(Longitude), !is.na(Latitude))
+  
   
   output$grocery_dist <- renderText({ "The closest grocery store is" }) # initialize the output
   output$garden_dist <- renderText({ "The closest garden is" }) # initialize the output
+  output$map <- renderLeaflet({
+    leaflet() |> addTiles()
+  })
   
   observeEvent(input$calculate, {
     output$map <- renderLeaflet({
       gardenData <- gardenData
       groceryData <- groceryData
-      
       # Create an empty map to start with
       map <- leaflet() |> addTiles()
       
@@ -73,7 +93,8 @@ server <- function(input, output) {
           addMarkers(data = groceryData, lng = ~Longitude, lat = ~Latitude, popup = ~`Entity Name`,
                      icon = ~leaflet::makeIcon(iconUrl = 'shop-icon.png', iconWidth = 20, iconHeight = 20)) 
       }
-      
+
+
       # Add a FontAwesome user icon at the user-specified coordinates
       map <- map |> 
         addAwesomeMarkers(lng = input$lng, lat = input$lat, icon = awesomeIcons(icon = 'user', library = 'fa', markerColor = 'red'))
@@ -83,7 +104,7 @@ server <- function(input, output) {
       
       map
     })
-    
+
     if (!is.null(groceryData)) {
       # Calculate the grocery_dists from the user-specified coordinates to all grocery stores
       grocery_dists <- distm(c(input$lng, input$lat), groceryData[, c("Longitude", "Latitude")], fun = distVincentySphere)
@@ -116,7 +137,70 @@ server <- function(input, output) {
       })
     }
   })
+  
+  pricesData <- reactive({
+    files <- input$timeseries
+    if (is.null(files)) {
+      return(NULL)
+    }
+    
+    lapply(files$datapath, function(file) {
+      df <- read_csv(file, col_names = TRUE, col_types = cols(
+        Date = col_date(format = "%d-%m-%Y"),
+        `Price min` = col_double(),
+        `Price max` = col_double()
+      ))
+      
+      df$Name <- tools::file_path_sans_ext(basename(file)) # add a column with the name of the file
+      
+      df
+    }) |> bind_rows()  # combine all data frames into one
+  })
+  
+  output$plots <- renderPlotly({
+    req(input$timeseries)
+    
+    plots <- lapply(input$timeseries$datapath, function(file) {
+      # Read the CSV file into a data frame
+      df <- read_csv(file, col_names = TRUE, col_types = cols(.default = "c"))
+      
+      # Convert the 'Date' column to a date object
+      df$Date <- as.Date(df$Date, format = "%d-%m-%Y")
+      
+      # Create a time series plot
+      plot_ly(df, x = ~Date, y = ~`Price min`, type = 'scatter', mode = 'lines', name = 'Price min') |>
+        add_trace(y = ~`Price max`, name = 'Price max', mode = 'lines') |>
+        layout(title = tools::file_path_sans_ext(basename(file)), 
+               xaxis = list(title = "Date"), 
+               yaxis = list(title = "Price"))
+    })
+    
+    subplot(plots, nrows = length(plots), margin = 0.05)
+  })
+  
+  percentageChangeData <- reactive({
+    df <- pricesData()
+    if (is.null(df)) {
+      return(NULL)
+    }
+    
+    df |>
+      group_by(Name) |>
+      summarise(PercentageChange = 100 * (first(`Price max`) - last(`Price max`)) / first(`Price max`))  # calculate percentage change
+  })
+  
+  output$bar_plot <- renderPlotly({
+    df <- percentageChangeData()
+    if (is.null(df)) {
+      return(NULL)
+    }
+    
+    plot_ly(df, x = ~Name, y = ~PercentageChange, type = 'bar') |>
+      layout(title = "Percentage Change in Price")
+  })
 }
 
 # Run the application 
 shinyApp(ui = ui, server = server)
+
+                              
